@@ -493,10 +493,24 @@ function runClaudeCli(cliPath) {
         // Note: Interceptors won't work with binary files, but that's acceptable
         // as binary files are self-contained and don't need interception
         const args = process.argv.slice(2);
+
+        // When inject mode is active, pipe stdin so we can forward the mock stdin
+        const useInject = !!process.env.HAPPY_INJECT_PORT;
         const child = spawn(cliPath, args, {
-            stdio: 'inherit',
+            stdio: [useInject ? 'pipe' : 'inherit', 'inherit', 'inherit'],
             env: process.env
         });
+
+        if (useInject && child.stdin) {
+            // Forward process.stdin (which is the mock TTY) to child's piped stdin
+            process.stdin.on('data', (chunk) => {
+                child.stdin.write(chunk);
+            });
+            process.stdin.on('end', () => {
+                child.stdin.end();
+            });
+        }
+
         child.on('exit', (code) => {
             process.exit(code || 0);
         });

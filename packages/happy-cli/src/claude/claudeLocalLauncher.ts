@@ -102,7 +102,6 @@ export async function claudeLocalLauncher(session: Session): Promise<LauncherRes
                     hookSettingsPath: session.hookSettingsPath,
                     sandboxConfig: session.sandboxConfig,
                     thinkingUrl: session.thinkingUrl,
-                    injectPort: session.injectPort,
                     onChildReady: (write) => {
                         childWriter = write;
                         logger.debug('[local]: Child ready, message injection enabled');
