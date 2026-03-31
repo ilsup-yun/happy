@@ -23,6 +23,7 @@ import { generateHookSettingsFile, cleanupHookSettingsFile } from '@/claude/util
 import { registerKillSessionHandler } from './registerKillSessionHandler';
 import { projectPath } from '../projectPath';
 import { resolve } from 'node:path';
+import { createServer } from 'node:net';
 import { startOfflineReconnection, connectionState } from '@/utils/serverConnectionErrors';
 import { claudeLocal } from '@/claude/claudeLocal';
 import { createSessionScanner } from '@/claude/utils/sessionScanner';
@@ -31,6 +32,24 @@ import { applySandboxPermissionPolicy, resolveInitialClaudePermissionMode } from
 
 /** JavaScript runtime to use for spawning Claude Code */
 export type JsRuntime = 'node' | 'bun'
+
+/** Find a random available port by binding to port 0 */
+function getRandomPort(): Promise<number> {
+    return new Promise((resolve, reject) => {
+        const srv = createServer();
+        srv.listen(0, '127.0.0.1', () => {
+            const addr = srv.address();
+            if (!addr || typeof addr === 'string') {
+                srv.close();
+                reject(new Error('Failed to get port'));
+                return;
+            }
+            const port = addr.port;
+            srv.close(() => resolve(port));
+        });
+        srv.on('error', reject);
+    });
+}
 
 export interface StartOptions {
     model?: string
@@ -494,11 +513,15 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
                 controlledByUser: newMode === 'local'
             }));
         },
-        onSessionReady: (sessionInstance) => {
+        onSessionReady: async (sessionInstance) => {
             // Store reference for hook server callback
             currentSession = sessionInstance;
-            // Set thinking URL for PTY mode
+            // Set thinking URL and inject port for bidirectional control
             sessionInstance.thinkingUrl = `http://127.0.0.1:${hookServer.port}/hook/thinking`;
+            // Find a free port for inject server (launcher will listen on it)
+            const injectPort = await getRandomPort();
+            sessionInstance.injectPort = injectPort;
+            logger.debug(`[START] Inject port assigned: ${injectPort}`);
         },
         mcpServers: {
             'happy': {

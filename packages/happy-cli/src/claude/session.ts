@@ -21,8 +21,10 @@ export class Session {
     readonly hookSettingsPath: string;
     /** JavaScript runtime to use for spawning Claude Code (default: 'node') */
     readonly jsRuntime: JsRuntime;
-    /** URL for HTTP-based thinking state (PTY mode, replaces fd 3) */
+    /** URL for HTTP-based thinking state (replaces fd 3) */
     thinkingUrl?: string;
+    /** Port for the inject server in the launcher (message injection) */
+    injectPort?: number;
 
     sessionId: string | null;
     mode: 'local' | 'remote' = 'local';

@@ -1,7 +1,9 @@
-import * as pty from "node-pty";
+import { spawn } from "node:child_process";
 import { resolve, join } from "node:path";
+import { createInterface } from "node:readline";
 import { mkdirSync, existsSync } from "node:fs";
 import { randomUUID } from "node:crypto";
+import { request } from "node:http";
 import { logger } from "@/ui/logger";
 import { claudeFindLastSession } from "./utils/claudeFindLastSession";
 import { getProjectPath } from "./utils/path";
@@ -26,9 +28,14 @@ export class ExitCodeError extends Error {
 // Get Claude CLI path from project root
 export const claudeCliPath = resolve(join(projectPath(), 'scripts', 'claude_local_launcher.cjs'))
 
+function quoteShellArg(value: string): string {
+    return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
 /**
- * Write function exposed after PTY child is ready.
- * Used by claudeLocalLauncher to inject mobile messages into the terminal.
+ * Write function exposed after child is ready.
+ * Sends a message via HTTP to the launcher's inject server,
+ * which pushes it into Claude's stdin.
  */
 export type ChildWriter = (data: string) => void;
 
@@ -45,9 +52,11 @@ export async function claudeLocal(opts: {
     /** Path to temporary settings file with SessionStart hook (optional - for session tracking) */
     hookSettingsPath?: string,
     sandboxConfig?: SandboxConfig,
-    /** URL for HTTP-based thinking state (PTY mode, replaces fd 3) */
+    /** URL for HTTP-based thinking state (replaces fd 3) */
     thinkingUrl?: string,
-    /** Called when the PTY child is ready, providing a write function for message injection */
+    /** Port for the inject server in the launcher (message injection) */
+    injectPort?: number,
+    /** Called when the child is ready, providing a write function for message injection */
     onChildReady?: (write: ChildWriter) => void,
 }) {
 
@@ -129,7 +138,6 @@ export async function claudeLocal(opts: {
     let effectiveSessionId: string | null = startFrom;
 
     if (!opts.hookSettingsPath) {
-        // Offline mode
         newSessionId = startFrom ? null : (explicitSessionId || randomUUID());
         effectiveSessionId = startFrom || newSessionId!;
 
@@ -153,140 +161,241 @@ export async function claudeLocal(opts: {
         }
     }
 
-    // Build args
-    const args: string[] = [];
-
-    if (!opts.hookSettingsPath) {
-        const hasResumeInArgs = opts.claudeArgs?.includes('--resume') || opts.claudeArgs?.includes('-r');
-        if (startFrom) {
-            args.push('--resume', startFrom);
-        } else if (!hasResumeInArgs && newSessionId) {
-            args.push('--session-id', newSessionId);
+    // Thinking state
+    let thinking = false;
+    let stopThinkingTimeout: NodeJS.Timeout | null = null;
+    const updateThinking = (newThinking: boolean) => {
+        if (thinking !== newThinking) {
+            thinking = newThinking;
+            logger.debug(`[ClaudeLocal] Thinking state changed to: ${thinking}`);
+            if (opts.onThinkingChange) {
+                opts.onThinkingChange(thinking);
+            }
         }
-    } else {
-        if (startFrom) {
-            args.push('--resume', startFrom);
-        }
-    }
-
-    args.push('--append-system-prompt', systemPrompt);
-
-    if (opts.mcpServers && Object.keys(opts.mcpServers).length > 0) {
-        args.push('--mcp-config', JSON.stringify({ mcpServers: opts.mcpServers }));
-    }
-
-    if (opts.allowedTools && opts.allowedTools.length > 0) {
-        args.push('--allowedTools', opts.allowedTools.join(','));
-    }
-
-    if (opts.claudeArgs) {
-        args.push(...opts.claudeArgs);
-    }
-
-    if (opts.hookSettingsPath) {
-        args.push('--settings', opts.hookSettingsPath);
-        logger.debug(`[ClaudeLocal] Using hook settings: ${opts.hookSettingsPath}`);
-    }
-
-    if (!claudeCliPath || !existsSync(claudeCliPath)) {
-        throw new Error('Claude local launcher not found. Please ensure HAPPY_PROJECT_ROOT is set correctly for development.');
-    }
-
-    // Prepare environment
-    const env: Record<string, string> = {
-        ...process.env as Record<string, string>,
-        ...opts.claudeEnvVars,
     };
 
-    // Set thinking URL for PTY mode (replaces fd 3)
-    if (opts.thinkingUrl) {
-        env.HAPPY_THINKING_URL = opts.thinkingUrl;
-    }
-
-    logger.debug(`[ClaudeLocal] Spawning PTY launcher: ${claudeCliPath}`);
-    logger.debug(`[ClaudeLocal] Args: ${JSON.stringify(args)}`);
-
-    // Spawn via PTY - provides real TTY to Claude Code, enables stdin injection
-    const cols = process.stdout.columns || 80;
-    const rows = process.stdout.rows || 24;
-
-    // TODO: sandbox support with PTY (currently sandbox wraps the command as a shell string)
-    if (opts.sandboxConfig?.enabled && process.platform !== 'win32') {
-        logger.warn('[ClaudeLocal] Sandbox with PTY mode is not yet supported; continuing without sandbox.');
-    }
-
-    const ptyProcess = pty.spawn('node', [claudeCliPath, ...args], {
-        name: 'xterm-256color',
-        cols,
-        rows,
-        cwd: opts.path,
-        env,
-    });
-
-    // Forward PTY output to local terminal
-    ptyProcess.onData((data: string) => {
-        process.stdout.write(data);
-    });
-
-    // Forward local stdin to PTY
-    const stdinHandler = (data: Buffer) => {
-        ptyProcess.write(data.toString());
-    };
-
-    if (process.stdin.isTTY) {
-        process.stdin.setRawMode(true);
-    }
-    process.stdin.resume();
-    process.stdin.on('data', stdinHandler);
-
-    // Handle terminal resize
-    const resizeHandler = () => {
-        ptyProcess.resize(
-            process.stdout.columns || 80,
-            process.stdout.rows || 24
-        );
-    };
-    process.stdout.on('resize', resizeHandler);
-
-    // Expose write function for mobile message injection
-    if (opts.onChildReady) {
-        opts.onChildReady((data: string) => {
-            ptyProcess.write(data);
+    // Expose inject writer if injectPort is set
+    if (opts.injectPort && opts.onChildReady) {
+        const port = opts.injectPort;
+        opts.onChildReady((message: string) => {
+            const postData = message;
+            const req = request({
+                hostname: '127.0.0.1',
+                port,
+                path: '/inject',
+                method: 'POST',
+                headers: { 'Content-Type': 'text/plain' },
+            }, () => {});
+            req.on('error', (err) => {
+                logger.debug(`[ClaudeLocal] Inject request failed: ${err.message}`);
+            });
+            req.end(postData);
         });
     }
 
-    // Handle abort signal
-    const abortHandler = () => {
-        ptyProcess.kill();
-    };
-    if (opts.abort.aborted) {
-        ptyProcess.kill();
-    } else {
-        opts.abort.addEventListener('abort', abortHandler, { once: true });
-    }
-
-    // Wait for PTY process to exit
+    // Spawn the process
     try {
-        await new Promise<void>((resolve, reject) => {
-            ptyProcess.onExit(({ exitCode, signal }) => {
-                if (signal && opts.abort.aborted) {
-                    // Normal termination due to abort
-                    resolve();
-                } else if (exitCode !== 0 && exitCode !== null) {
-                    reject(new ExitCodeError(exitCode));
-                } else {
-                    resolve();
+        process.stdin.pause();
+        await new Promise<void>((r, reject) => {
+            const args: string[] = []
+
+            if (!opts.hookSettingsPath) {
+                const hasResumeFlag = opts.claudeArgs?.includes('--resume') || opts.claudeArgs?.includes('-r');
+                if (startFrom) {
+                    args.push('--resume', startFrom)
+                } else if (!hasResumeFlag && newSessionId) {
+                    args.push('--session-id', newSessionId)
                 }
-            });
+            } else {
+                if (startFrom) {
+                    args.push('--resume', startFrom);
+                }
+            }
+
+            args.push('--append-system-prompt', systemPrompt);
+
+            if (opts.mcpServers && Object.keys(opts.mcpServers).length > 0) {
+                args.push('--mcp-config', JSON.stringify({ mcpServers: opts.mcpServers }));
+            }
+
+            if (opts.allowedTools && opts.allowedTools.length > 0) {
+                args.push('--allowedTools', opts.allowedTools.join(','));
+            }
+
+            if (opts.claudeArgs) {
+                args.push(...opts.claudeArgs)
+            }
+
+            if (opts.hookSettingsPath) {
+                args.push('--settings', opts.hookSettingsPath);
+                logger.debug(`[ClaudeLocal] Using hook settings: ${opts.hookSettingsPath}`);
+            }
+
+            if (!claudeCliPath || !existsSync(claudeCliPath)) {
+                throw new Error('Claude local launcher not found. Please ensure HAPPY_PROJECT_ROOT is set correctly for development.');
+            }
+
+            const env: Record<string, string> = {
+                ...process.env as Record<string, string>,
+                ...opts.claudeEnvVars
+            }
+
+            // Pass inject port and thinking URL to the launcher
+            if (opts.injectPort) {
+                env.HAPPY_INJECT_PORT = String(opts.injectPort);
+            }
+            if (opts.thinkingUrl) {
+                env.HAPPY_THINKING_URL = opts.thinkingUrl;
+            }
+
+            logger.debug(`[ClaudeLocal] Spawning launcher: ${claudeCliPath}`);
+            logger.debug(`[ClaudeLocal] Args: ${JSON.stringify(args)}`);
+
+            (async () => {
+                let cleanupSandbox: (() => Promise<void>) | null = null;
+                let spawnCommand: string | null = null;
+                let spawnArgs: string[] = [claudeCliPath, ...args];
+                let spawnWithShell = false;
+
+                if (opts.sandboxConfig?.enabled) {
+                    if (process.platform === 'win32') {
+                        logger.warn('[ClaudeLocal] Sandbox is not supported on Windows; continuing without sandbox.');
+                    } else {
+                        try {
+                            cleanupSandbox = await initializeSandbox(opts.sandboxConfig, opts.path);
+
+                            if (!spawnArgs.includes('--dangerously-skip-permissions')) {
+                                spawnArgs = [...spawnArgs, '--dangerously-skip-permissions'];
+                            }
+
+                            const fullCommand = [
+                                'node',
+                                ...spawnArgs.map((arg) => quoteShellArg(arg)),
+                            ].join(' ');
+
+                            spawnCommand = await wrapCommand(fullCommand);
+                            spawnWithShell = true;
+
+                            logger.info(
+                                `[ClaudeLocal] Sandbox enabled: workspace=${opts.sandboxConfig.workspaceRoot ?? opts.path}, network=${opts.sandboxConfig.networkMode}`,
+                            );
+                        } catch (error) {
+                            logger.warn('[ClaudeLocal] Failed to initialize sandbox; continuing without sandbox.', error);
+                            cleanupSandbox = null;
+                            spawnCommand = null;
+                            spawnWithShell = false;
+                            spawnArgs = [claudeCliPath, ...args];
+                        }
+                    }
+                }
+
+                // Use 'pipe' for fd 3 (thinking state) unless inject mode uses HTTP for thinking
+                const stdio: any[] = ['inherit', 'inherit', 'inherit', opts.thinkingUrl ? 'ignore' : 'pipe'];
+
+                const child = spawn(
+                    spawnWithShell && spawnCommand ? spawnCommand : 'node',
+                    spawnWithShell ? [] : spawnArgs,
+                    {
+                        stdio,
+                        signal: opts.abort,
+                        cwd: opts.path,
+                        env,
+                        shell: spawnWithShell,
+                    },
+                );
+
+                // Listen to fd 3 for thinking state (when not using HTTP)
+                if (!opts.thinkingUrl && child.stdio[3]) {
+                    const rl = createInterface({
+                        input: child.stdio[3] as any,
+                        crlfDelay: Infinity
+                    });
+
+                    const activeFetches = new Map<number, { hostname: string, path: string, startTime: number }>();
+
+                    rl.on('line', (line) => {
+                        try {
+                            const message = JSON.parse(line);
+
+                            switch (message.type) {
+                                case 'fetch-start':
+                                    activeFetches.set(message.id, {
+                                        hostname: message.hostname,
+                                        path: message.path,
+                                        startTime: message.timestamp
+                                    });
+
+                                    if (stopThinkingTimeout) {
+                                        clearTimeout(stopThinkingTimeout);
+                                        stopThinkingTimeout = null;
+                                    }
+
+                                    updateThinking(true);
+                                    break;
+
+                                case 'fetch-end':
+                                    activeFetches.delete(message.id);
+
+                                    if (activeFetches.size === 0 && thinking && !stopThinkingTimeout) {
+                                        stopThinkingTimeout = setTimeout(() => {
+                                            if (activeFetches.size === 0) {
+                                                updateThinking(false);
+                                            }
+                                            stopThinkingTimeout = null;
+                                        }, 500);
+                                    }
+                                    break;
+
+                                default:
+                                    logger.debug(`[ClaudeLocal] Unknown message type: ${message.type}`);
+                            }
+                        } catch (e) {
+                            logger.debug(`[ClaudeLocal] Non-JSON line from fd3: ${line}`);
+                        }
+                    });
+
+                    rl.on('error', (err) => {
+                        console.error('Error reading from fd 3:', err);
+                    });
+
+                    child.on('exit', () => {
+                        if (stopThinkingTimeout) {
+                            clearTimeout(stopThinkingTimeout);
+                        }
+                        updateThinking(false);
+                    });
+                }
+                child.on('error', (error) => {
+                    // Ignore
+                });
+                child.on('exit', async (code, signal) => {
+                    if (cleanupSandbox) {
+                        try {
+                            await cleanupSandbox();
+                        } catch (error) {
+                            logger.warn('[ClaudeLocal] Failed to reset sandbox after session exit.', error);
+                        }
+                    }
+
+                    if (signal === 'SIGTERM' && opts.abort.aborted) {
+                        r();
+                    } else if (signal) {
+                        reject(new Error(`Process terminated with signal: ${signal}`));
+                    } else if (code !== 0 && code !== null) {
+                        reject(new ExitCodeError(code));
+                    } else {
+                        r();
+                    }
+                });
+            })().catch(reject);
         });
     } finally {
-        // Cleanup
-        opts.abort.removeEventListener('abort', abortHandler);
-        process.stdin.off('data', stdinHandler);
-        process.stdout.off('resize', resizeHandler);
-        if (process.stdin.isTTY) {
-            process.stdin.setRawMode(false);
+        process.stdin.resume();
+        if (stopThinkingTimeout) {
+            clearTimeout(stopThinkingTimeout);
+            stopThinkingTimeout = null;
         }
+        updateThinking(false);
     }
 
     return effectiveSessionId;
