@@ -205,17 +205,52 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
     // Used by hook server to notify Session when Claude changes session ID
     let currentSession: Session | null = null;
 
+    // Thinking state tracking (used in PTY mode via HTTP instead of fd 3)
+    let thinkingState = false;
+    let stopThinkingTimeout: NodeJS.Timeout | null = null;
+    const activeFetches = new Map<number, { hostname: string, path: string, startTime: number }>();
+
     // Start Hook server for receiving Claude session notifications
     const hookServer = await startHookServer({
         onSessionHook: (sessionId, data) => {
             logger.debug(`[START] Session hook received: ${sessionId}`, data);
-            
+
             // Update session ID in the Session instance
             if (currentSession) {
                 const previousSessionId = currentSession.sessionId;
                 if (previousSessionId !== sessionId) {
                     logger.debug(`[START] Claude session ID changed: ${previousSessionId} -> ${sessionId}`);
                     currentSession.onSessionFound(sessionId);
+                }
+            }
+        },
+        onThinkingEvent: (event) => {
+            if (!currentSession) return;
+
+            if (event.type === 'fetch-start') {
+                activeFetches.set(event.id, {
+                    hostname: event.hostname || '',
+                    path: event.path || '',
+                    startTime: event.timestamp
+                });
+                if (stopThinkingTimeout) {
+                    clearTimeout(stopThinkingTimeout);
+                    stopThinkingTimeout = null;
+                }
+                if (!thinkingState) {
+                    thinkingState = true;
+                    currentSession.onThinkingChange(true);
+                }
+            } else if (event.type === 'fetch-end') {
+                activeFetches.delete(event.id);
+                if (activeFetches.size === 0 && thinkingState && !stopThinkingTimeout) {
+                    stopThinkingTimeout = setTimeout(() => {
+                        if (activeFetches.size === 0) {
+                            thinkingState = false;
+                            currentSession?.onThinkingChange(false);
+                        }
+                        stopThinkingTimeout = null;
+                    }, 500);
                 }
             }
         }
@@ -462,6 +497,8 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
         onSessionReady: (sessionInstance) => {
             // Store reference for hook server callback
             currentSession = sessionInstance;
+            // Set thinking URL for PTY mode
+            sessionInstance.thinkingUrl = `http://127.0.0.1:${hookServer.port}/hook/thinking`;
         },
         mcpServers: {
             'happy': {

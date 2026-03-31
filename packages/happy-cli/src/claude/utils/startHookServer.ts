@@ -73,9 +73,20 @@ export interface SessionHookData {
     [key: string]: unknown;
 }
 
+export interface ThinkingEvent {
+    type: 'fetch-start' | 'fetch-end';
+    id: number;
+    hostname?: string;
+    path?: string;
+    method?: string;
+    timestamp: number;
+}
+
 export interface HookServerOptions {
     /** Called when a session hook is received with a valid session ID */
     onSessionHook: (sessionId: string, data: SessionHookData) => void;
+    /** Called when a thinking state event is received (PTY mode) */
+    onThinkingEvent?: (event: ThinkingEvent) => void;
 }
 
 export interface HookServer {
@@ -92,7 +103,7 @@ export interface HookServer {
  * @returns Promise resolving to the server instance with port info
  */
 export async function startHookServer(options: HookServerOptions): Promise<HookServer> {
-    const { onSessionHook } = options;
+    const { onSessionHook, onThinkingEvent } = options;
 
     return new Promise((resolve, reject) => {
         const server: Server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
@@ -136,6 +147,28 @@ export async function startHookServer(options: HookServerOptions): Promise<HookS
                 } catch (error) {
                     clearTimeout(timeout);
                     logger.debug('[hookServer] Error handling session hook:', error);
+                    if (!res.headersSent) {
+                        res.writeHead(500).end('error');
+                    }
+                }
+                return;
+            }
+
+            // Handle POST to /hook/thinking (PTY mode thinking state)
+            if (req.method === 'POST' && req.url === '/hook/thinking') {
+                try {
+                    const chunks: Buffer[] = [];
+                    for await (const chunk of req) {
+                        chunks.push(chunk as Buffer);
+                    }
+                    const body = Buffer.concat(chunks).toString('utf-8');
+                    if (onThinkingEvent) {
+                        const event = JSON.parse(body) as ThinkingEvent;
+                        onThinkingEvent(event);
+                    }
+                    res.writeHead(200).end('ok');
+                } catch (error) {
+                    logger.debug('[hookServer] Error handling thinking event:', error);
                     if (!res.headersSent) {
                         res.writeHead(500).end('error');
                     }

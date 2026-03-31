@@ -76,8 +76,10 @@ export async function loop(opts: LoopOptions): Promise<number> {
                 const result = await claudeLocalLauncher(session);
                 switch (result.type ) {
                     case 'switch':
-                        mode = 'remote';
-                        opts.onModeChange?.(mode);
+                        // Bidirectional control: mobile messages are injected into PTY,
+                        // so switch should only happen for explicit RPC requests.
+                        // Stay in local mode — no automatic switching.
+                        logger.debug('[loop] local mode: switch requested but staying in local (bidirectional control)');
                         break;
                     case 'exit':
                         return result.code;

@@ -1,14 +1,39 @@
 const fs = require('fs');
+const http = require('http');
 
 // Disable autoupdater (never works really)
 process.env.DISABLE_AUTOUPDATER = '1';
 
-// Helper to write JSON messages to fd 3
+// Thinking state URL for PTY mode (where fd 3 is not available)
+const thinkingUrl = process.env.HAPPY_THINKING_URL;
+
+// Helper to write JSON messages to fd 3 or HTTP endpoint
 function writeMessage(message) {
-    try {
-        fs.writeSync(3, JSON.stringify(message) + '\n');
-    } catch (err) {
-        // fd 3 not available, ignore
+    const payload = JSON.stringify(message) + '\n';
+
+    if (thinkingUrl) {
+        // PTY mode: send via HTTP (fire-and-forget)
+        try {
+            const url = new URL(thinkingUrl);
+            const req = http.request({
+                hostname: url.hostname,
+                port: url.port,
+                path: url.pathname,
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+            }, () => { /* ignore response */ });
+            req.on('error', () => { /* ignore errors */ });
+            req.end(payload);
+        } catch (err) {
+            // ignore
+        }
+    } else {
+        // Standard mode: write to fd 3
+        try {
+            fs.writeSync(3, payload);
+        } catch (err) {
+            // fd 3 not available, ignore
+        }
     }
 }
 
