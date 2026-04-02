@@ -27,6 +27,9 @@ export class Session {
     sessionId: string | null;
     mode: 'local' | 'remote' = 'local';
     thinking: boolean = false;
+
+    /** Last detected options from Claude's response, used for numeric option selection from mobile */
+    pendingOptions: string[] | null = null;
     
     /** Callbacks to be notified when session ID is found/changed */
     private sessionFoundCallbacks: ((sessionId: string) => void)[] = [];

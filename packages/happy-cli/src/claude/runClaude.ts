@@ -370,6 +370,21 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
             logger.debug(`[loop] User message received with no disallowed tools override, using current: ${currentDisallowedTools ? currentDisallowedTools.join(', ') : 'none'}`);
         }
 
+        // Check for numeric option selection
+        const trimmedText = message.content.text.trim();
+        const num = parseInt(trimmedText, 10);
+        if (!isNaN(num) && trimmedText === String(num) && currentSession?.pendingOptions) {
+            if (num >= 1 && num <= currentSession.pendingOptions.length) {
+                const selectedOption = currentSession.pendingOptions[num - 1];
+                logger.debug(`[loop] Numeric option selection: ${num} -> "${selectedOption}"`);
+                message = {
+                    ...message,
+                    content: { ...message.content, text: selectedOption }
+                };
+                currentSession.pendingOptions = null;
+            }
+        }
+
         // Check for special commands before processing
         const specialCommand = parseSpecialCommand(message.content.text);
 
