@@ -218,6 +218,9 @@ export const en = {
         sessionNotFound: 'Session not found',
         voiceSessionFailed: 'Failed to start voice session',
         voiceServiceUnavailable: 'Voice service is temporarily unavailable',
+        voiceLimitReachedTitle: 'Voice Limit Reached',
+        voiceHardLimitReached: ({ hours }: { hours: number }) => `You've used ${hours}+ hours of voice this month. This is the maximum allowed. You can configure your own ElevenLabs agent in Voice settings to use your own quota.`,
+        voiceConversationLimitReached: 'You\'ve reached the maximum number of voice conversations this month. We may add on-demand voice usage in the future — please file an issue at github.com/nicepkg/happy/issues if you hit this limit.',
         oauthInitializationFailed: 'Failed to initialize OAuth flow',
         tokenStorageFailed: 'Failed to store authentication tokens',
         oauthStateMismatch: 'Security validation failed. Please try again',
@@ -395,6 +398,9 @@ export const en = {
             title: 'MODEL',
             configureInCli: 'Configure models in CLI settings',
         },
+        effort: {
+            title: 'EFFORT',
+        },
         codexPermissionMode: {
             title: 'CODEX PERMISSION MODE',
             default: 'default permissions',
@@ -565,6 +571,14 @@ export const en = {
         bypassTokenSubtitle: 'Skip Happy server, connect straight to ElevenLabs',
         promptGuideTitle: 'Agent Prompt Guide',
         promptGuideDescription: 'Your ElevenLabs agent needs:\n\n• Tool: messageClaudeCode — parameter: message (string). Sends a message to the active coding session.\n• Tool: processPermissionRequest — parameter: decision ("allow" or "deny"). Approves or denies a pending tool permission.\n• Dynamic variable: {{initialConversationContext}} — receives session history and context on start.\n\nThe agent acts as a voice bridge between the user and coding agents. It should be concise, only respond when addressed, and report when a coding agent finishes work.',
+        // Voice usage
+        usageTitle: 'Usage (Last 30 Days)',
+        usageFooter: 'Voice time used in the last 30 days. Free tier: 20 min. Subscribed: 5 hours. Max 100 conversations per month.',
+        usageLabel: 'Voice Time',
+        conversationsLabel: 'Conversations',
+        usageUsed: ({ used, limit }: { used: string; limit: string }) => `${used} used of ${limit}`,
+        supportTitle: 'Upgrade Voice',
+        supportSubtitle: 'Get more voice time and support development',
     },
 
     settingsAccount: {

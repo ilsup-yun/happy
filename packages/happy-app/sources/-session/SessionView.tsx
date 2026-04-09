@@ -6,7 +6,10 @@ import {
     getAvailablePermissionModes,
     getDefaultModelKey,
     getDefaultPermissionModeKey,
+    getEffortLevelsForModel,
+    getDefaultEffortKeyForModel,
     resolveCurrentOption,
+    EffortLevel,
 } from '@/components/modelModeOptions';
 import { getSuggestions } from '@/components/autocomplete/suggestions';
 import { ChatHeaderView } from '@/components/ChatHeaderView';
@@ -18,7 +21,7 @@ import { VoiceAssistantStatusBar } from '@/components/VoiceAssistantStatusBar';
 import { useDraft } from '@/hooks/useDraft';
 import { Modal } from '@/modal';
 import { voiceHooks } from '@/realtime/hooks/voiceHooks';
-import { startRealtimeSession, stopRealtimeSession } from '@/realtime/RealtimeSession';
+import { getCurrentVoiceConversationId, getCurrentVoiceSessionDurationSeconds, startRealtimeSession, stopRealtimeSession } from '@/realtime/RealtimeSession';
 import { gitStatusSync } from '@/sync/gitStatusSync';
 import { sessionAbort } from '@/sync/ops';
 import { storage, useIsDataReady, useLocalSetting, useRealtimeStatus, useSessionMessages, useSessionUsage, useSetting } from '@/sync/storage';
@@ -26,7 +29,8 @@ import { useSession } from '@/sync/storage';
 import { Session } from '@/sync/storageTypes';
 import { sync } from '@/sync/sync';
 import { t } from '@/text';
-import { tracking, trackMessageSent } from '@/track';
+import { tracking } from '@/track';
+import { getVoiceMessageCount, getVoiceOnboardingPromptLoadCount } from '@/sync/persistence';
 import { isRunningOnMac } from '@/utils/platform';
 import { useDeviceType, useHeaderHeight, useIsLandscape, useIsTablet } from '@/utils/responsive';
 import { formatPathRelativeToHome, getResumeCommandBlock, getSessionAvatarId, getSessionName, useSessionStatus } from '@/utils/sessionUtils';
@@ -230,6 +234,19 @@ function SessionViewLoaded({ sessionId, session }: { sessionId: string, session:
             getDefaultModelKey(flavor),
         ])
     ), [availableModels, session.modelMode, session.metadata?.currentModelCode, flavor]);
+
+    // Effort level state
+    const modelKey = modelMode?.key ?? 'default';
+    const availableEffortLevels = React.useMemo<EffortLevel[]>(() => (
+        getEffortLevelsForModel(flavor, modelKey)
+    ), [flavor, modelKey]);
+    const effortLevel = React.useMemo<EffortLevel | null>(() => (
+        resolveCurrentOption(availableEffortLevels, [
+            session.effortLevel,
+            getDefaultEffortKeyForModel(flavor, modelKey),
+        ])
+    ), [availableEffortLevels, session.effortLevel, flavor, modelKey]);
+
     const sessionStatus = useSessionStatus(session);
     const sessionUsage = useSessionUsage(sessionId);
     const alwaysShowContextSize = useSetting('alwaysShowContextSize');
@@ -264,6 +281,10 @@ function SessionViewLoaded({ sessionId, session }: { sessionId: string, session:
         storage.getState().updateSessionModelMode(sessionId, mode.key);
     }, [sessionId]);
 
+    const updateEffortLevel = React.useCallback((level: EffortLevel) => {
+        storage.getState().updateSessionEffortLevel(sessionId, level.key);
+    }, [sessionId]);
+
     // Memoize header-dependent styles to prevent re-renders
     const headerDependentStyles = React.useMemo(() => ({
         contentContainer: {
@@ -283,16 +304,35 @@ function SessionViewLoaded({ sessionId, session }: { sessionId: string, session:
         if (realtimeStatus === 'disconnected' || realtimeStatus === 'error') {
             try {
                 const initialPrompt = voiceHooks.onVoiceStarted(sessionId);
-                await startRealtimeSession(sessionId, initialPrompt);
-                tracking?.capture('voice_session_started', { sessionId });
+                const conversationId = await startRealtimeSession(sessionId, initialPrompt);
+                if (conversationId) {
+                    const hasPro = storage.getState().purchases.entitlements['pro'] ?? false;
+                    tracking?.capture('voice_session_started', {
+                        session_id: sessionId,
+                        elevenlabs_conversation_id: conversationId,
+                        has_pro: hasPro,
+                        onboarding_prompt_load_count: getVoiceOnboardingPromptLoadCount(),
+                        voice_message_count: getVoiceMessageCount(),
+                    });
+                }
             } catch (error) {
                 console.error('Failed to start realtime session:', error);
                 Modal.alert(t('common.error'), t('errors.voiceSessionFailed'));
-                tracking?.capture('voice_session_error', { error: error instanceof Error ? error.message : 'Unknown error' });
+                tracking?.capture('voice_session_error', {
+                    session_id: sessionId,
+                    elevenlabs_conversation_id: getCurrentVoiceConversationId(),
+                    error: error instanceof Error ? error.message : 'Unknown error',
+                });
             }
         } else if (realtimeStatus === 'connected') {
+            const conversationId = getCurrentVoiceConversationId();
+            const durationSeconds = getCurrentVoiceSessionDurationSeconds();
             await stopRealtimeSession();
-            tracking?.capture('voice_session_stopped');
+            tracking?.capture('voice_session_stopped', {
+                session_id: sessionId,
+                elevenlabs_conversation_id: conversationId,
+                ...(durationSeconds !== undefined ? { duration_seconds: durationSeconds } : {}),
+            });
 
             // Notify voice assistant about voice session stop
             voiceHooks.onVoiceStopped();
@@ -347,6 +387,9 @@ function SessionViewLoaded({ sessionId, session }: { sessionId: string, session:
             modelMode={modelMode}
             availableModels={availableModels}
             onModelModeChange={updateModelMode}
+            effortLevel={effortLevel}
+            availableEffortLevels={availableEffortLevels}
+            onEffortLevelChange={updateEffortLevel}
             metadata={session.metadata}
             connectionStatus={{
                 text: sessionStatus.statusText,
@@ -359,8 +402,7 @@ function SessionViewLoaded({ sessionId, session }: { sessionId: string, session:
                 if (message.trim()) {
                     setMessage('');
                     clearDraft();
-                    sync.sendMessage(sessionId, message);
-                    trackMessageSent();
+                    sync.sendMessage(sessionId, message, { source: 'chat' });
                 }
             }}
             onMicPress={isDisconnected ? undefined : micButtonState.onMicPress}

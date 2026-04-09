@@ -1,6 +1,19 @@
 {
   "entries": [
     {
+      "version": 7,
+      "date": "2026-04-08",
+      "summary": "This preview release expands the current update with the latest Gemini models, a smarter voice onboarding flow, and more reliable Happy CLI sessions for plan approvals and Codex turns.",
+      "changes": [
+        "Update Happy CLI with `npm i -g happy`",
+        "Added the latest Gemini models to the picker",
+        "Improved voice onboarding with smarter first-run prompts and clearer upgrade guidance for free users",
+        "Fixed Happy CLI plan approval flows so Accept and Reject buttons show up reliably in plan mode",
+        "Fixed Happy CLI background task updates and Codex turns that could sometimes hang or fail to complete"
+      ],
+      "rawMarkdown": "## Version 7 - 2026-04-08\n\n\nThis preview release expands the current update with the latest Gemini models, a smarter voice onboarding flow, and more reliable Happy CLI sessions for plan approvals and Codex turns.\n\n- Update Happy CLI with `npm i -g happy`\n- Added the latest Gemini models to the picker\n- Improved voice onboarding with smarter first-run prompts and clearer upgrade guidance for free users\n- Fixed Happy CLI plan approval flows so Accept and Reject buttons show up reliably in plan mode\n- Fixed Happy CLI background task updates and Codex turns that could sometimes hang or fail to complete"
+    },
+    {
       "version": 6,
       "date": "2026-03-19",
       "summary": "This is the biggest update since launch — a redesigned session creation experience, Git worktree management, expanded agent support.",
@@ -84,5 +97,5 @@
       "rawMarkdown": "## Version 1 - 2025-05-12\n\n\nWelcome to Happy - your secure, encrypted mobile companion for Claude Code. This inaugural release establishes the foundation for private, powerful AI interactions on the go.\n\n- Implemented end-to-end encrypted session management ensuring complete privacy\n- Integrated intelligent voice assistant with natural conversation capabilities\n- Added experimental file manager with syntax highlighting and tree navigation\n- Built seamless real-time synchronization across all your devices\n- Established native support for iOS, Android, and responsive web interfaces"
     }
   ],
-  "latestVersion": 6
+  "latestVersion": 7
 }

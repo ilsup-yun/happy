@@ -63,8 +63,8 @@ export const SettingsView = React.memo(function SettingsView() {
     };
 
     const handleSubscribe = async () => {
-        trackPaywallButtonClicked();
-        const result = await sync.presentPaywall();
+        trackPaywallButtonClicked('voluntary_support');
+        const result = await sync.presentPaywall('voluntary_support');
         if (!result.success) {
             console.error('Failed to present paywall:', result.error);
         } else if (result.purchased) {

@@ -1,4 +1,10 @@
-<div align="center"><img src="/.github/logotype-dark.png" width="400" title="Happy Coder" alt="Happy Coder"/></div>
+<div align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="/.github/logotype-dark.png">
+    <source media="(prefers-color-scheme: light)" srcset="/.github/logotype-light.png">
+    <img src="/.github/logotype-dark.png" width="400" alt="Happy">
+  </picture>
+</div>
 
 <h1 align="center">
   Mobile and Web Client for Claude Code & Codex
@@ -30,28 +36,21 @@ Step 2: Install CLI on your computer
 </h3>
 
 ```bash
-npm install -g happy-coder
+npm install -g happy
 ```
+
+> Migrated from the `happy-coder` package. Thanks to [@franciscop](https://github.com/franciscop) for donating the `happy` package name!
 
 <h3 align="center">
 Step 3: Start using `happy` instead of `claude` or `codex`
 </h3>
 
 ```bash
-
-# Instead of: claude
-# Use: happy
-
-happy
-
-# Instead of: codex
-# Use: happy codex
-
+# Instead of claude, use:
+happy claude
+# or
 happy codex
-
 ```
-
-<div align="center"><img src="/.github/mascot.png" width="200" title="Happy Coder" alt="Happy Coder"/></div>
 
 ## How does it work?
 

@@ -201,6 +201,9 @@ export const ru: TranslationStructure = {
         sessionNotFound: 'Сессия не найдена',
         voiceSessionFailed: 'Не удалось запустить голосовую сессию',
         voiceServiceUnavailable: 'Голосовой сервис временно недоступен',
+        voiceLimitReachedTitle: 'Лимит голоса достигнут',
+        voiceHardLimitReached: ({ hours }: { hours: number }) => `Вы использовали ${hours}+ часов голосового общения в этом месяце. Это максимально допустимый лимит. Вы можете настроить собственного агента ElevenLabs в настройках голоса, чтобы использовать свою квоту.`,
+        voiceConversationLimitReached: 'Вы достигли максимального количества голосовых разговоров в этом месяце. Возможно, в будущем мы добавим голосовое использование по запросу — пожалуйста, создайте заявку на github.com/nicepkg/happy/issues, если вы столкнулись с этим ограничением.',
         oauthInitializationFailed: 'Не удалось инициализировать процесс OAuth',
         tokenStorageFailed: 'Не удалось сохранить токены аутентификации',
         oauthStateMismatch: 'Ошибка проверки безопасности. Попробуйте снова',
@@ -406,6 +409,9 @@ export const ru: TranslationStructure = {
             title: 'МОДЕЛЬ',
             configureInCli: 'Настройте модели в настройках CLI',
         },
+        effort: {
+            title: 'УСИЛИЕ',
+        },
         codexPermissionMode: {
             title: 'РЕЖИМ РАЗРЕШЕНИЙ CODEX',
             default: 'Настройки CLI',
@@ -576,6 +582,13 @@ export const ru: TranslationStructure = {
         bypassTokenSubtitle: 'Пропустить сервер Happy, подключиться напрямую к ElevenLabs',
         promptGuideTitle: 'Руководство по промптам агента',
         promptGuideDescription: 'Вашему агенту ElevenLabs необходимы:\n\n• Инструмент: messageClaudeCode — параметр: message (string). Отправляет сообщение в активную сессию кодирования.\n• Инструмент: processPermissionRequest — параметр: decision ("allow" или "deny"). Одобряет или отклоняет ожидающее разрешение на использование инструмента.\n• Динамическая переменная: {{initialConversationContext}} — получает историю и контекст сессии при запуске.\n\nАгент выступает голосовым мостом между пользователем и агентами кодирования. Он должен быть кратким, отвечать только при обращении и сообщать, когда агент кодирования завершает работу.',
+        usageTitle: 'Использование (последние 30 дней)',
+        usageFooter: 'Время голосового общения за последние 30 дней. Бесплатный тариф: 20 мин. С подпиской: 5 часов. Макс. 100 разговоров в месяц.',
+        usageLabel: 'Голосовое время',
+        conversationsLabel: 'Разговоры',
+        usageUsed: ({ used, limit }: { used: string; limit: string }) => `${used} использовано из ${limit}`,
+        supportTitle: 'Улучшить голос',
+        supportSubtitle: 'Больше голосового времени и поддержка разработки',
     },
 
     settingsAccount: {

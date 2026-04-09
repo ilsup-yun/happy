@@ -118,6 +118,9 @@ export async function claudeLocalLauncher(session: Session): Promise<LauncherRes
             } catch (e) {
                 logger.debug('[local]: launch error', e);
                 if (e instanceof ExitCodeError) {
+                    if (exitReason) {
+                        break; // preserve existing exit reason (e.g. switch intent) — SIGTERM is expected
+                    }
                     session.client.closeClaudeSessionTurn('failed');
                     exitReason = { type: 'exit', code: e.exitCode };
                     break;

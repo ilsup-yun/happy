@@ -18,10 +18,10 @@ let agentIsSpeaking = false;
 // Global voice session implementation
 class RealtimeVoiceSessionImpl implements VoiceSession {
     
-    async startSession(config: VoiceSessionConfig): Promise<void> {
+    async startSession(config: VoiceSessionConfig): Promise<string | null> {
         if (!conversationInstance) {
             console.warn('Realtime voice session not initialized');
-            return;
+            throw new Error('Realtime voice session not initialized');
         }
 
         try {
@@ -31,28 +31,35 @@ class RealtimeVoiceSessionImpl implements VoiceSession {
             const userLanguagePreference = storage.getState().settings.voiceAssistantLanguage;
             const elevenLabsLanguage = getElevenLabsCodeFromPreference(userLanguagePreference);
             
-            if (!config.token && !config.agentId) {
-                throw new Error('Neither token nor agentId provided');
+            if (!config.conversationToken && !config.agentId) {
+                throw new Error('No conversationToken or agentId provided');
             }
-            
+
             const sessionConfig: any = {
+                // conversationToken (WebRTC JWT from server) or agentId (bypass mode)
+                ...(config.conversationToken
+                    ? { conversationToken: config.conversationToken }
+                    : { agentId: config.agentId }),
+                userId: config.userId,
                 dynamicVariables: {
                     sessionId: config.sessionId,
                     initialConversationContext: config.initialContext || ''
                 },
                 overrides: {
                     agent: {
+                        ...(config.systemPrompt ? { prompt: { prompt: config.systemPrompt } } : {}),
+                        ...(config.firstMessage ? { firstMessage: config.firstMessage } : {}),
                         language: elevenLabsLanguage
                     }
                 },
-                ...(config.token ? { conversationToken: config.token } : { agentId: config.agentId }),
-                ...(config.userId ? { userId: config.userId } : {}),
             };
             
             await conversationInstance.startSession(sessionConfig);
+            return conversationInstance.getId?.() ?? null;
         } catch (error) {
             console.error('Failed to start realtime session:', error);
             storage.getState().setRealtimeStatus('error');
+            throw error;
         }
     }
 

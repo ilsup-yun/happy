@@ -1,5 +1,15 @@
 # Changelog
 
+## Version 7 - 2026-04-08
+
+This preview release expands the current update with the latest Gemini models, a smarter voice onboarding flow, and more reliable Happy CLI sessions for plan approvals and Codex turns.
+
+- Update Happy CLI with `npm i -g happy`
+- Added the latest Gemini models to the picker
+- Improved voice onboarding with smarter first-run prompts and clearer upgrade guidance for free users
+- Fixed Happy CLI plan approval flows so Accept and Reject buttons show up reliably in plan mode
+- Fixed Happy CLI background task updates and Codex turns that could sometimes hang or fail to complete
+
 ## Version 6 - 2026-03-19
 
 This is the biggest update since launch — a redesigned session creation experience, Git worktree management, expanded agent support.
