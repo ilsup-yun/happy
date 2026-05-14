@@ -423,7 +423,7 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
                         }
                         turnText = '';
 
-                        if (!pending && session.queue.size() === 0) {
+                        if (!pending && session.queue.size() === 0 && process.env.HAPPY_NOTIFY_DONE !== '0') {
                             session.api.push().sendSessionNotification({
                                 kind: 'done',
                                 metadata: session.client.getMetadata(),

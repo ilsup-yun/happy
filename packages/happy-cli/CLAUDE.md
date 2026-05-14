@@ -136,26 +136,34 @@ User interface components.
 - Testing: Vitest 
 
 
-# Running the Daemon
+# Local Build & Deploy
 
-## Starting the Daemon
+코드 수정 후 로컬 머신에 적용하는 전체 과정:
+
 ```bash
-# From the happy-cli directory:
-./bin/happy.mjs daemon start
+# 1. 빌드 (packages/happy-cli 디렉토리에서)
+cd packages/happy-cli
+yarn build
 
-# With custom server URL (for local development):
-HAPPY_SERVER_URL=http://localhost:3005 ./bin/happy.mjs daemon start
+# 2. 글로벌 happy 명령에 로컬 빌드 링크 (최초 1회)
+yarn link:dev
+# → happy-dev 명령이 로컬 빌드를 가리키게 됨
+# → happy는 npm 설치 stable 버전 유지
 
-# Stop the daemon:
-./bin/happy.mjs daemon stop
+# 3. 데몬 재시작
+happy daemon stop && happy daemon start
 
-# Check daemon status:
-./bin/happy.mjs daemon status
+# 버전 확인
+happy --version
 ```
 
+- `happy` 명령은 npm global 설치 경로(`~/.nvm/.../bin/happy`)에 심볼릭 링크로 연결됨
+- 빌드 결과물은 `dist/` 디렉토리에 생성됨
+- 빌드만 하면 이미 링크된 경로를 통해 바로 반영되므로, 이후에는 `yarn build` + 데몬 재시작만 하면 됨
+
 ## Daemon Logs
-- Daemon logs are stored in `~/.happy-dev/logs/` (or `$HAPPY_HOME_DIR/logs/`)
-- Named with format: `YYYY-MM-DD-HH-MM-SS-daemon.log`
+- Daemon logs: `~/.happy/logs/` (stable) 또는 `~/.happy-dev/logs/` (dev)
+- Format: `YYYY-MM-DD-HH-MM-SS-daemon.log`
 
 # Session Forking `claude` and sdk behavior
 
