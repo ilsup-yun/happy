@@ -17,6 +17,7 @@ import { getToolName } from "./utils/getToolName";
 import { getAskUserQuestionToolCallIds } from "./utils/questionNotification";
 import { cleanupStdinAfterInk } from "@/utils/terminalStdinCleanup";
 import type { MessageParam, ContentBlockParam } from '@anthropic-ai/sdk/resources';
+import { parseOptionsFromText } from "@/gemini/utils/optionsParser";
 
 interface PermissionsField {
     date: number;
@@ -133,13 +134,14 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
     // Handle messages
     let ongoingToolCalls = new Map<string, { parentToolCallId: string | null }>();
     let notifiedQuestionToolCalls = new Set<string>();
+    let turnText = ''; // Accumulate assistant text per turn for options detection
 
     function onMessage(message: SDKMessage) {
 
         // Write to message log
         formatClaudeMessageForInk(message, messageBuffer);
 
-        // Track active tool calls
+        // Track active tool calls and accumulate text for options detection
         if (message.type === 'assistant') {
             let umessage = message as SDKAssistantMessage;
             if (umessage.message.content && Array.isArray(umessage.message.content)) {
@@ -147,6 +149,9 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
                     if (c.type === 'tool_use') {
                         logger.debug('[remote]: detected tool use ' + c.id! + ' parent: ' + umessage.parent_tool_use_id);
                         ongoingToolCalls.set(c.id!, { parentToolCallId: umessage.parent_tool_use_id ?? null });
+                    }
+                    if (c.type === 'text' && c.text && !umessage.parent_tool_use_id) {
+                        turnText += c.text;
                     }
                 }
             }
@@ -420,7 +425,20 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
                     },
                     onReady: () => {
                         session.client.closeClaudeSessionTurn('completed');
-                        if (!pending && session.queue.size() === 0) {
+
+                        // Detect options in the completed turn and notify mobile
+                        const { options } = parseOptionsFromText(turnText);
+                        if (options.length > 0) {
+                            session.pendingOptions = options;
+                            const optionsText = options.map((opt, i) => `${i + 1}. ${opt}`).join('\n');
+                            session.client.sendSessionEvent({ type: 'message', message: optionsText });
+                            logger.debug(`[remote]: Detected ${options.length} options, sent to mobile`);
+                        } else {
+                            session.pendingOptions = null;
+                        }
+                        turnText = '';
+
+                        if (!pending && session.queue.size() === 0 && process.env.HAPPY_NOTIFY_DONE !== '0') {
                             session.api.push().sendSessionNotification({
                                 kind: 'done',
                                 metadata: session.client.getMetadata(),

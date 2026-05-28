@@ -556,13 +556,23 @@ function runClaudeCli(cliPath) {
     // and *keeps reading the inherited TTY*. After a remote→local switch a
     // fresh launcher + binary is spawned, so two claude binaries end up
     // sharing the same stdin/stdout — visibly two cursors and garbled echo.
-    // (Investigation: ps showed orphan claude.exe with parent pid 1 still
-    // attached to the same pts as the live one.)
     const args = process.argv.slice(2);
+
+    // When inject mode is active, pipe stdin so we can forward the mock stdin
+    const useInject = !!process.env.HAPPY_INJECT_PORT;
     const child = spawn(cliPath, args, {
-        stdio: 'inherit',
+        stdio: [useInject ? 'pipe' : 'inherit', 'inherit', 'inherit'],
         env: process.env
     });
+
+    if (useInject && child.stdin) {
+        process.stdin.on('data', (chunk) => {
+            child.stdin.write(chunk);
+        });
+        process.stdin.on('end', () => {
+            child.stdin.end();
+        });
+    }
 
     let forwarded = false;
     const forwardAndDetach = (sig) => {

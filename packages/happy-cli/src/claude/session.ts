@@ -22,10 +22,15 @@ export class Session {
     readonly hookSettingsPath: string;
     /** JavaScript runtime to use for spawning Claude Code (default: 'node') */
     readonly jsRuntime: JsRuntime;
+    /** URL for HTTP-based thinking state (replaces fd 3 in PTY mode) */
+    thinkingUrl?: string;
 
     sessionId: string | null;
     mode: 'local' | 'remote' = 'local';
     thinking: boolean = false;
+
+    /** Last detected options from Claude's response, used for numeric option selection from mobile */
+    pendingOptions: string[] | null = null;
     
     /** Callbacks to be notified when session ID is found/changed */
     private sessionFoundCallbacks: ((sessionId: string) => void)[] = [];

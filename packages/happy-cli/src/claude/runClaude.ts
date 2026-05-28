@@ -350,6 +350,11 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
     // Used by hook server to notify Session when Claude changes session ID
     let currentSession: Session | null = null;
 
+    // Thinking state tracking (used in PTY mode via HTTP instead of fd 3)
+    let thinkingState = false;
+    let stopThinkingTimeout: NodeJS.Timeout | null = null;
+    const activeFetches = new Map<number, { hostname: string, path: string, startTime: number }>();
+
     // Start Hook server for receiving Claude session notifications
     const hookServer = await startHookServer({
         onSessionHook: (sessionId, data) => {
@@ -376,6 +381,36 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
                 if (previousSessionId !== sessionId) {
                     logger.debug(`[START] Claude session ID changed: ${previousSessionId} -> ${sessionId}`);
                     currentSession.onSessionFound(sessionId);
+                }
+            }
+        },
+        onThinkingEvent: (event) => {
+            if (!currentSession) return;
+
+            if (event.type === 'fetch-start') {
+                activeFetches.set(event.id, {
+                    hostname: event.hostname || '',
+                    path: event.path || '',
+                    startTime: event.timestamp
+                });
+                if (stopThinkingTimeout) {
+                    clearTimeout(stopThinkingTimeout);
+                    stopThinkingTimeout = null;
+                }
+                if (!thinkingState) {
+                    thinkingState = true;
+                    currentSession.onThinkingChange(true);
+                }
+            } else if (event.type === 'fetch-end') {
+                activeFetches.delete(event.id);
+                if (activeFetches.size === 0 && thinkingState && !stopThinkingTimeout) {
+                    stopThinkingTimeout = setTimeout(() => {
+                        if (activeFetches.size === 0) {
+                            thinkingState = false;
+                            currentSession?.onThinkingChange(false);
+                        }
+                        stopThinkingTimeout = null;
+                    }, 500);
                 }
             }
         }
@@ -566,6 +601,21 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
             }
         } else {
             logger.debug(`[loop] User message received with no effort override, using current: ${currentEffort ?? 'default'}`);
+        }
+
+        // Check for numeric option selection
+        const trimmedText = message.content.text.trim();
+        const num = parseInt(trimmedText, 10);
+        if (!isNaN(num) && trimmedText === String(num) && currentSession?.pendingOptions) {
+            if (num >= 1 && num <= currentSession.pendingOptions.length) {
+                const selectedOption = currentSession.pendingOptions[num - 1];
+                logger.debug(`[loop] Numeric option selection: ${num} -> "${selectedOption}"`);
+                message = {
+                    ...message,
+                    content: { ...message.content, text: selectedOption }
+                };
+                currentSession.pendingOptions = null;
+            }
         }
 
         // Check for special commands before processing
@@ -782,6 +832,8 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
         onSessionReady: (sessionInstance) => {
             // Store reference for hook server callback
             currentSession = sessionInstance;
+            // Set thinking URL and inject port for bidirectional control
+            sessionInstance.thinkingUrl = `http://127.0.0.1:${hookServer.port}/hook/thinking`;
         },
         onAbort: resetCurrentModeDefaults,
         mcpServers: {
