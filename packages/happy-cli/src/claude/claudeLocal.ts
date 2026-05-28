@@ -1,4 +1,3 @@
-import * as pty from "node-pty";
 import { resolve, join } from "node:path";
 import { mkdirSync, existsSync } from "node:fs";
 import { randomUUID } from "node:crypto";
@@ -217,6 +216,7 @@ export async function claudeLocal(opts: {
     const cols = process.stdout.columns || 80;
     const rows = process.stdout.rows || 24;
 
+    const pty = await import("node-pty");
     const ptyProcess = pty.spawn('node', [claudeCliPath, ...args], {
         name: 'xterm-256color',
         cols,
