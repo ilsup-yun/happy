@@ -217,7 +217,7 @@ export async function claudeLocal(opts: {
     const rows = process.stdout.rows || 24;
 
     const pty = await import("node-pty");
-    const ptyProcess = pty.spawn('node', [claudeCliPath, ...args], {
+    const ptyProcess = pty.spawn(process.execPath, [claudeCliPath, ...args], {
         name: 'xterm-256color',
         cols,
         rows,

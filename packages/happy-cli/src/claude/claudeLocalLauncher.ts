@@ -174,6 +174,8 @@ export async function claudeLocalLauncher(session: Session): Promise<LauncherRes
         }
 
         // Run local mode
+        const RETRY_DELAYS_MS = [500, 1500, 4000];
+        let retryCount = 0;
         while (true) {
             if (exitReason) {
                 return exitReason;
@@ -218,7 +220,19 @@ export async function claudeLocalLauncher(session: Session): Promise<LauncherRes
                     break;
                 }
                 if (!exitReason) {
-                    session.client.sendSessionEvent({ type: 'message', message: 'Process exited unexpectedly' });
+                    // Non-ExitCodeError (e.g. PTY spawn failure). These are usually deterministic
+                    // — retrying immediately spins the CPU and floods logs. Back off, cap retries.
+                    if (retryCount >= RETRY_DELAYS_MS.length) {
+                        logger.debug(`[local]: giving up after ${RETRY_DELAYS_MS.length} retries`);
+                        session.client.sendSessionEvent({ type: 'message', message: `Process failed to start after ${RETRY_DELAYS_MS.length} retries: ${e instanceof Error ? e.message : String(e)}` });
+                        session.client.closeClaudeSessionTurn('failed');
+                        exitReason = { type: 'exit', code: 1 };
+                        break;
+                    }
+                    const delay = RETRY_DELAYS_MS[retryCount];
+                    session.client.sendSessionEvent({ type: 'message', message: `Process exited unexpectedly (retry ${retryCount + 1}/${RETRY_DELAYS_MS.length} in ${delay}ms)` });
+                    await new Promise<void>((res) => setTimeout(res, delay));
+                    retryCount++;
                     continue;
                 } else {
                     break;

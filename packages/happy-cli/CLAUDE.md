@@ -234,3 +234,42 @@ When using --resume:
 2. Original session remains as historical record
 3. All context preserved but under new session identity
 4. Session ID in stream-json output will be the new one, not the resumed one
+
+# Troubleshooting
+
+## `posix_spawnp failed` — node-pty 가 claude 를 띄우지 못하고 즉시 종료
+
+**증상:**
+- `happy` 실행 시 claude 가 뜨지 않고 retry 후 종료
+- 로그(`~/.happy/logs/*-pid-*.log`)에 다음 스택 트레이스:
+  ```
+  [local]: launch error Error: posix_spawnp failed.
+      at new UnixTerminal (.../node_modules/node-pty/lib/unixTerminal.js:92:24)
+      at Module.spawn (.../node_modules/node-pty/lib/index.js:30:12)
+      at claudeLocal (...)
+  ```
+
+**원인:**
+- `node_modules/node-pty/prebuilds/<platform>-<arch>/spawn-helper` 바이너리에서 **실행 권한(x)이 사라짐**
+- node-pty 는 자식 프로세스를 forkpty 할 때 이 helper 를 exec 하는데, 실행 권한이 없으면 `posix_spawn` 시스템콜이 EACCES 로 실패
+- 일부 패키지 매니저 / 캐시 압축·해제 / 파일 복사 도구가 mode 비트를 보존하지 않아 발생 (특히 yarn berry pnp / tar 추출 옵션 차이 등)
+
+**확인:**
+```bash
+ls -la node_modules/node-pty/prebuilds/darwin-arm64/spawn-helper
+# -rw-r--r--  ← 이렇게 x 비트가 없으면 문제
+# -rwxr-xr-x  ← 정상
+```
+
+**해결:**
+```bash
+chmod +x node_modules/node-pty/prebuilds/darwin-arm64/spawn-helper
+```
+- 다른 OS/아키텍처는 해당 디렉토리(`darwin-x64`, `linux-x64` 등) 의 `spawn-helper` 도 동일하게 처리
+- `yarn install` / `npm install` 후 재발 가능 — 발생하면 위 명령으로 즉시 복구
+- 코드 변경(`'node'` → `process.execPath` 등) 과는 무관한 환경 문제이므로 retry 로직으로는 해결되지 않음 (deterministic error)
+
+**검증 1-liner:**
+```bash
+node -e "const p=require('node-pty').spawn(process.execPath,['-e','process.exit(0)'],{name:'xterm-256color',cols:80,rows:24,cwd:process.cwd(),env:process.env});p.onExit(({exitCode})=>console.log('ok',exitCode))"
+```
