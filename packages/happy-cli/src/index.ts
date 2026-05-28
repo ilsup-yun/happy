@@ -730,7 +730,12 @@ ${chalk.bold.cyan('Claude Code Options (from `claude --help`):')}
     // Show version
     if (showVersion) {
       console.log(`happy version: ${packageJson.version}`)
-      // Don't exit - continue to pass --version to Claude Code
+      try {
+        const { execFileSync: execVer } = await import('node:child_process');
+        const claudeVer = execVer(claudeCliPath, ['--version'], { encoding: 'utf8', timeout: 5000, windowsHide: true }).trim();
+        if (claudeVer) console.log(claudeVer);
+      } catch (_) {}
+      process.exit(0);
     }
 
     // Normal flow - auth and machine setup
