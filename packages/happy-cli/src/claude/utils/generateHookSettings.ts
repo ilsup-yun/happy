@@ -29,7 +29,17 @@ export function generateHookSettingsFile(port: number): string {
     const forwarderScript = resolve(projectPath(), 'scripts', 'session_hook_forwarder.cjs');
     const hookCommand = `node "${forwarderScript}" ${port}`;
 
+    // Opt-in ultracode (xhigh reasoning + dynamic workflow orchestration). It is a
+    // session-only Claude setting with no env var / persistent settings.json key, so
+    // shell aliases like `claude --settings {ultracode:true}` are bypassed when Happy
+    // spawns the claude binary directly. Injecting it into the settings file Happy
+    // already passes via `--settings` is the only path that reaches both local PTY and
+    // remote sessions. Gated on HAPPY_ULTRACODE so the cost is opt-in per environment.
+    const ultracodeEnabled = process.env.HAPPY_ULTRACODE === '1'
+        || process.env.HAPPY_ULTRACODE?.toLowerCase() === 'true';
+
     const settings = {
+        ...(ultracodeEnabled ? { ultracode: true } : {}),
         hooks: {
             SessionStart: [
                 {
@@ -44,6 +54,10 @@ export function generateHookSettingsFile(port: number): string {
             ]
         }
     };
+
+    if (ultracodeEnabled) {
+        logger.debug('[generateHookSettings] HAPPY_ULTRACODE set — injecting ultracode:true into settings');
+    }
 
     writeFileSync(filepath, JSON.stringify(settings, null, 2));
     logger.debug(`[generateHookSettings] Created hook settings file: ${filepath}`);
