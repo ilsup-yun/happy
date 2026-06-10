@@ -1,7 +1,7 @@
 const fs = require('fs');
 
-// Disable autoupdater (never works really)
-process.env.DISABLE_AUTOUPDATER = '1';
+// [ultracode] Upstream force-sets DISABLE_AUTOUPDATER=1 here. We keep the
+// autoupdater enabled so claude launched through happy can self-update.
 
 // Helper to write JSON messages to fd 3
 function writeMessage(message) {
